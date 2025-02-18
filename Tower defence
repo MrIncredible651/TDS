@@ -1,0 +1,246 @@
+
+html
+Copy
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tower Defense Game</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #f0f0f0;
+        }
+        #score, #health {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            font-family: Arial, sans-serif;
+            color: white;
+            font-size: 20px;
+        }
+        #score {
+            left: 10px;
+        }
+        #health {
+            top: 40px;
+            left: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div id="score">Score: 0</div>
+    <div id="health">Health: 100</div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // Setup the game environment using Three.js
+        let scene, camera, renderer;
+        let towers = [], enemies = [], bullets = [];
+        let score = 0, health = 100;
+        let currentLevel = 1, currentWave = 0;
+        let enemiesRemaining = 0;
+        const levels = [
+            { name: 'Level 1', waves: 3, maxEnemies: 15, enemiesMultiplier: 1 },
+            { name: 'Level 2', waves: 5, maxEnemies: 20, enemiesMultiplier: 1.5 },
+            { name: 'Level 3', waves: 7, maxEnemies: 30, enemiesMultiplier: 2 },
+            { name: 'Level 4', waves: 8, maxEnemies: 40, enemiesMultiplier: 2.5 },
+            { name: 'Level 5', waves: 10, maxEnemies: 50, enemiesMultiplier: 3 }
+        ];
+
+        // Create the scene
+        function init() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            renderer = new THREE.WebGLRenderer();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            // Add a simple floor
+            const floorGeometry = new THREE.PlaneGeometry(100, 100);
+            const floorMaterial = new THREE.MeshBasicMaterial({ color: 0xAAAAAA, side: THREE.DoubleSide });
+            const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+            floor.rotation.x = Math.PI / 2;
+            scene.add(floor);
+
+            // Set camera position
+            camera.position.z = 50;
+
+            // Start the game
+            startNextLevel();
+            animate();
+        }
+
+        // Tower creation function
+        function createTower(x, z, type) {
+            let geometry, material;
+            switch (type) {
+                case 'basic':
+                    geometry = new THREE.CylinderGeometry(1, 1, 4, 32);
+                    material = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+                    break;
+                case 'slow':
+                    geometry = new THREE.CylinderGeometry(1, 1, 4, 32);
+                    material = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
+                    break;
+                case 'splash':
+                    geometry = new THREE.CylinderGeometry(1, 1, 4, 32);
+                    material = new THREE.MeshBasicMaterial({ color: 0x0000ff });
+                    break;
+                case 'fire':
+                    geometry = new THREE.CylinderGeometry(1, 1, 4, 32);
+                    material = new THREE.MeshBasicMaterial({ color: 0xff8c00 });
+                    break;
+                case 'pierce':
+                    geometry = new THREE.CylinderGeometry(1, 1, 4, 32);
+                    material = new THREE.MeshBasicMaterial({ color: 0x800080 });
+                    break;
+                default:
+                    geometry = new THREE.CylinderGeometry(1, 1, 4, 32);
+                    material = new THREE.MeshBasicMaterial({ color: 0xff00ff });
+            }
+
+            const tower = new THREE.Mesh(geometry, material);
+            tower.position.set(x, 2, z);
+            scene.add(tower);
+
+            return { tower, type };
+        }
+
+        // Enemy creation function
+        function createEnemy(wave) {
+            let enemyType = 'normal';
+            if (wave % 5 === 0) {
+                enemyType = 'boss';
+            } else if (wave % 4 === 0) {
+                enemyType = 'miniboss';
+            } else if (wave % 3 === 0) {
+                enemyType = 'flying';
+            } else if (wave % 2 === 0) {
+                enemyType = 'tank';
+            }
+
+            const enemy = new THREE.Mesh(
+                new THREE.SphereGeometry(1, 32, 32),
+                new THREE.MeshBasicMaterial({ color: 0x00ff00 })
+            );
+
+            enemy.position.set(-40, 1, -40);
+            scene.add(enemy);
+
+            let speed, health;
+            switch (enemyType) {
+                case 'fast':
+                    speed = 0.3;
+                    health = 3;
+                    break;
+                case 'tank':
+                    speed = 0.1;
+                    health = 10;
+                    break;
+                case 'flying':
+                    speed = 0.2;
+                    health = 5;
+                    break;
+                case 'miniboss':
+                    speed = 0.1;
+                    health = 20;
+                    break;
+                case 'boss':
+                    speed = 0.05;
+                    health = 50;
+                    break;
+                default:
+                    speed = 0.15;
+                    health = 5;
+            }
+
+            enemy.speed = speed;
+            enemy.health = health;
+            enemy.type = enemyType;
+
+            enemies.push(enemy);
+        }
+
+        // Start the next level
+        function startNextLevel() {
+            if (currentLevel <= levels.length) {
+                console.log(`Starting ${levels[currentLevel - 1].name}`);
+                currentWave = 1;
+                spawnWave(currentWave);
+                currentLevel++;
+            }
+        }
+
+        // Spawn enemies for a wave
+        function spawnWave(wave) {
+            if (wave > levels[currentLevel - 1].waves) return;
+
+            console.log(`Wave ${wave} started!`);
+            enemiesRemaining = Math.floor(levels[currentLevel - 1].maxEnemies * levels[currentLevel - 1].enemiesMultiplier);
+
+            for (let i = 0; i < enemiesRemaining; i++) {
+                createEnemy(wave);
+            }
+        }
+
+        // Update the score and health
+        function updateScore(points) {
+            score += points;
+            document.getElementById('score').innerText = `Score: ${score}`;
+        }
+
+        function updateHealth(damage) {
+            health -= damage;
+            document.getElementById('health').innerText = `Health: ${health}`;
+            if (health <= 0) {
+                alert("Game Over!");
+                restartGame();
+            }
+        }
+
+        // Animate the game world
+        function animate() {
+            requestAnimationFrame(animate);
+            renderer.render(scene, camera);
+
+            // Game logic for enemy movement and collision detection
+            enemies.forEach(enemy => {
+                enemy.position.x += enemy.speed;
+                if (enemy.position.x > 50) {
+                    updateHealth(10); // Lose health if enemy reaches the base
+                    scene.remove(enemy);
+                }
+            });
+
+            // Check if wave is completed
+            if (enemiesRemaining <= 0) {
+                console.log(`Wave ${currentWave} complete!`);
+                if (currentWave === levels[currentLevel - 1].waves) {
+                    console.log(`Level ${currentLevel} complete!`);
+                    startNextLevel(); // Move to next level
+                } else {
+                    currentWave++;
+                    spawnWave(currentWave); // Start next wave
+                }
+            }
+        }
+
+        // Restart the game (reset values)
+        function restartGame() {
+            score = 0;
+            health = 100;
+            enemies = [];
+            towers = [];
+            currentLevel = 1;
+            currentWave = 0;
+            startNextLevel();
+        }
+
+        // Initialize the game
+        init();
+    </script>
+</body>
+</html>
